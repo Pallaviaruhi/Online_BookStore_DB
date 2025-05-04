@@ -1,0 +1,27 @@
+Table Books {
+  Book_ID INT [pk]
+  Title VARCHAR(100)
+  Author VARCHAR(100)
+  Genre VARCHAR(50)
+  Published_Year INT
+  Price DECIMAL(10,2)
+  Stock INT
+}
+
+Table Customers {
+  Customer_ID INT [pk]
+  Name VARCHAR(100)
+  Email VARCHAR(100)
+  Phone VARCHAR(15)
+  City VARCHAR(50)
+  Country VARCHAR(150)
+}
+
+Table Orders {
+  Order_ID INT [pk]
+  Customer_ID INT [ref: > Customers.Customer_ID]
+  Book_ID INT [ref: > Books.Book_ID]
+  Order_Date DATE
+  Quantity INT
+  Total_Amount DECIMAL(10,2)
+}
