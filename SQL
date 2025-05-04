@@ -1,0 +1,230 @@
+USE master;
+GO
+
+
+-- Drop the database (if exists)
+IF EXISTS (SELECT name FROM sys.databases WHERE name = 'OnlineBookstore')
+BEGIN
+    DROP DATABASE OnlineBookstore;
+END
+GO
+
+
+-- 1. Create Database (if not exists)
+IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = 'OnlineBookstore')
+BEGIN
+    CREATE DATABASE OnlineBookstore;
+END
+GO
+
+USE OnlineBookstore;
+GO
+
+-- 2. Drop Tables (in reverse dependency order)
+IF OBJECT_ID('dbo.Orders', 'U') IS NOT NULL DROP TABLE Orders;
+IF OBJECT_ID('dbo.Customers', 'U') IS NOT NULL DROP TABLE Customers;
+IF OBJECT_ID('dbo.Books', 'U') IS NOT NULL DROP TABLE Books;
+GO
+
+-- 3. Create Tables with Constraints
+CREATE TABLE Books (
+    Book_ID INT PRIMARY KEY IDENTITY(1,1),
+    Title VARCHAR(100) NOT NULL,
+    Author VARCHAR(100) NOT NULL,
+    Genre VARCHAR(50),
+    Published_Year INT CHECK (Published_Year > 0),
+    Price DECIMAL(10, 2) CHECK (Price >= 0),
+    Stock INT CHECK (Stock >= 0)
+);
+
+CREATE TABLE Customers (
+    Customer_ID INT PRIMARY KEY IDENTITY(1,1),
+    Name VARCHAR(100) NOT NULL,
+    Email VARCHAR(100) CHECK (Email LIKE '%@%.%'),
+    Phone VARCHAR(15),
+    City VARCHAR(50),
+    Country VARCHAR(150)
+);
+
+CREATE TABLE Orders (
+    Order_ID INT PRIMARY KEY IDENTITY(1,1),
+    Customer_ID INT REFERENCES Customers(Customer_ID),
+    Book_ID INT REFERENCES Books(Book_ID),
+    Order_Date DATE DEFAULT GETDATE(),
+    Quantity INT CHECK (Quantity > 0),
+    Total_Amount DECIMAL(10, 2) CHECK (Total_Amount >= 0)
+);
+GO
+
+-- 4. Import Data (Update file paths)
+BULK INSERT Books
+FROM 'C:\Users\palla\Downloads\OnlineBookStore\Books.csv'
+WITH (
+    FORMAT = 'CSV',
+    FIRSTROW = 2,
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = '0x0a'
+);
+
+BULK INSERT Customers
+FROM 'C:\Users\palla\Downloads\OnlineBookStore\Customers.csv'
+WITH (
+    FORMAT = 'CSV',
+    FIRSTROW = 2,
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = '0x0a'
+);
+
+BULK INSERT Orders
+FROM 'C:\Users\palla\Downloads\OnlineBookStore\Orders.csv'
+WITH (
+    FORMAT = 'CSV',
+    FIRSTROW = 2,
+    FIELDTERMINATOR = ',',
+    ROWTERMINATOR = '0x0a'
+);
+GO
+
+-- 5. Create Indexes
+CREATE NONCLUSTERED INDEX idx_books_genre ON Books(Genre);
+CREATE NONCLUSTERED INDEX idx_customers_country ON Customers(Country);
+CREATE NONCLUSTERED INDEX idx_orders_customer_id ON Orders(Customer_ID);
+GO
+
+-- 6. Create Stock Update Trigger
+IF OBJECT_ID('dbo.trg_UpdateStock', 'TR') IS NOT NULL
+    DROP TRIGGER dbo.trg_UpdateStock;
+GO
+
+CREATE TRIGGER trg_UpdateStock
+ON Orders
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    UPDATE b
+    SET Stock = b.Stock - i.Quantity
+    FROM Books b
+    INNER JOIN inserted i ON b.Book_ID = i.Book_ID;
+END;
+GO
+
+-- 7. Stored Procedure: Monthly Sales Report
+IF OBJECT_ID('dbo.usp_GenerateMonthlyReport', 'P') IS NOT NULL
+    DROP PROCEDURE dbo.usp_GenerateMonthlyReport;
+GO
+
+CREATE PROCEDURE usp_GenerateMonthlyReport
+    @Month INT,
+    @Year INT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    SELECT 
+        b.Genre,
+        SUM(o.Total_Amount) AS Revenue,
+        SUM(o.Quantity) AS Units_Sold
+    FROM Orders o
+    INNER JOIN Books b ON o.Book_ID = b.Book_ID
+    WHERE MONTH(o.Order_Date) = @Month
+      AND YEAR(o.Order_Date) = @Year
+    GROUP BY b.Genre
+    ORDER BY Revenue DESC;
+END;
+GO
+
+
+-- Basic Queries
+SELECT * FROM Books WHERE Genre = 'Fiction';
+SELECT * FROM Books WHERE Published_Year > 1950;
+SELECT * FROM Customers WHERE Country = 'Canada';
+SELECT * FROM Orders WHERE Order_Date BETWEEN '2023-11-01' AND '2023-11-30';
+SELECT SUM(Stock) AS Total_Stock FROM Books;
+SELECT TOP 1 * FROM Books ORDER BY Price DESC;
+SELECT * FROM Orders WHERE Quantity > 1;
+SELECT * FROM Orders WHERE Total_Amount > 20;
+SELECT DISTINCT Genre FROM Books;
+SELECT TOP 1 * FROM Books ORDER BY Stock;
+SELECT SUM(Total_Amount) AS Revenue FROM Orders;
+
+-- Advanced Queries
+-- 1. Total books sold per genre
+SELECT b.Genre, SUM(o.Quantity) AS Total_Books_Sold
+FROM Orders o
+INNER JOIN Books b ON o.Book_ID = b.Book_ID
+GROUP BY b.Genre;
+
+-- 2. Average Fantasy book price
+SELECT AVG(Price) AS Average_Price 
+FROM Books 
+WHERE Genre = 'Fantasy';
+
+-- 3. Customers with ≥2 orders
+SELECT c.Customer_ID, c.Name, COUNT(o.Order_ID) AS Order_Count
+FROM Customers c
+INNER JOIN Orders o ON c.Customer_ID = o.Customer_ID
+GROUP BY c.Customer_ID, c.Name
+HAVING COUNT(o.Order_ID) >= 2;
+
+-- 4. Most ordered book
+SELECT TOP 1 b.Title, COUNT(o.Order_ID) AS Order_Count
+FROM Orders o
+INNER JOIN Books b ON o.Book_ID = b.Book_ID
+GROUP BY b.Title
+ORDER BY Order_Count DESC;
+
+-- 5. Top 3 expensive Fantasy books
+SELECT TOP 3 * 
+FROM Books 
+WHERE Genre = 'Fantasy' 
+ORDER BY Price DESC;
+
+-- 6. Books sold by author
+SELECT b.Author, SUM(o.Quantity) AS Total_Books_Sold
+FROM Orders o
+INNER JOIN Books b ON o.Book_ID = b.Book_ID
+GROUP BY b.Author;
+
+-- 7. Cities with high spenders (>$30)
+SELECT DISTINCT c.City, o.Total_Amount
+FROM Orders o
+INNER JOIN Customers c ON o.Customer_ID = c.Customer_ID
+WHERE o.Total_Amount > 30;
+
+-- 8. Top spending customer
+SELECT TOP 1 c.Name, SUM(o.Total_Amount) AS Total_Spent
+FROM Orders o
+INNER JOIN Customers c ON o.Customer_ID = c.Customer_ID
+GROUP BY c.Name
+ORDER BY Total_Spent DESC;
+
+-- 9. Remaining stock
+SELECT 
+    b.Book_ID,
+    b.Title,
+    b.Stock,
+    ISNULL(SUM(o.Quantity), 0) AS Ordered_Quantity,
+    b.Stock - ISNULL(SUM(o.Quantity), 0) AS Remaining_Stock
+FROM Books b
+LEFT JOIN Orders o ON b.Book_ID = o.Book_ID
+GROUP BY b.Book_ID, b.Title, b.Stock
+ORDER BY b.Book_ID;
+
+-- 10. Advanced: Top 5 customers using CTE
+WITH CustomerSpending AS (
+    SELECT 
+        c.Customer_ID,
+        c.Name,
+        SUM(o.Total_Amount) AS Total_Spent,
+        RANK() OVER (ORDER BY SUM(o.Total_Amount) DESC) AS Spending_Rank
+    FROM Customers c
+    INNER JOIN Orders o ON c.Customer_ID = o.Customer_ID
+    GROUP BY c.Customer_ID, c.Name
+)
+SELECT TOP 5 *
+FROM CustomerSpending
+ORDER BY Spending_Rank;
+
+-- 11. Execute stored procedure (Example)
+EXEC usp_GenerateMonthlyReport @Month = 11, @Year = 2023;
+GO
