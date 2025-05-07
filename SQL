@@ -147,6 +147,7 @@ SELECT DISTINCT Genre FROM Books;
 SELECT TOP 1 * FROM Books ORDER BY Stock;
 SELECT SUM(Total_Amount) AS Revenue FROM Orders;
 
+
 -- Advanced Queries
 -- 1. Total books sold per genre
 SELECT b.Genre, SUM(o.Quantity) AS Total_Books_Sold
@@ -154,17 +155,22 @@ FROM Orders o
 INNER JOIN Books b ON o.Book_ID = b.Book_ID
 GROUP BY b.Genre;
 
--- 2. Average Fantasy book price
-SELECT AVG(Price) AS Average_Price 
-FROM Books 
-WHERE Genre = 'Fantasy';
+-- 2. customer Distribution in Top 10 Country
+SELECT TOP 10
+    Country, 
+    COUNT(Customer_ID) AS Total_Customers 
+FROM Customers 
+GROUP BY Country 
+ORDER BY Total_Customers DESC; 
 
--- 3. Customers with ≥2 orders
-SELECT c.Customer_ID, c.Name, COUNT(o.Order_ID) AS Order_Count
+-- 3.TOP 5 Customers with total orders
+SELECT TOP 5
+       c.Customer_ID, c.Name,
+       COUNT(o.Order_ID) AS Order_Count
 FROM Customers c
 INNER JOIN Orders o ON c.Customer_ID = o.Customer_ID
-GROUP BY c.Customer_ID, c.Name
-HAVING COUNT(o.Order_ID) >= 2;
+GOUP BY c.Customer_ID, c.Name
+ORDER BY Order_Count DESC;
 
 -- 4. Most ordered book
 SELECT TOP 1 b.Title, COUNT(o.Order_ID) AS Order_Count
@@ -173,17 +179,20 @@ INNER JOIN Books b ON o.Book_ID = b.Book_ID
 GROUP BY b.Title
 ORDER BY Order_Count DESC;
 
--- 5. Top 3 expensive Fantasy books
-SELECT TOP 3 * 
-FROM Books 
-WHERE Genre = 'Fantasy' 
-ORDER BY Price DESC;
+-- 5. Monthly Sales Trends
+SELECT 
+    MONTH(Order_Date) AS Month, 
+    SUM(Total_Amount) AS Monthly_Revenue 
+FROM Orders 
+GROUP BY MONTH(Order_Date) 
+ORDER BY Month; 
 
 -- 6. Books sold by author
 SELECT b.Author, SUM(o.Quantity) AS Total_Books_Sold
 FROM Orders o
 INNER JOIN Books b ON o.Book_ID = b.Book_ID
-GROUP BY b.Author;
+GROUP BY b.Author
+ORDER By Total_Books_Sold DESC;
 
 -- 7. Cities with high spenders (>$30)
 SELECT DISTINCT c.City, o.Total_Amount
@@ -228,3 +237,33 @@ ORDER BY Spending_Rank;
 -- 11. Execute stored procedure (Example)
 EXEC usp_GenerateMonthlyReport @Month = 11, @Year = 2023;
 GO
+
+-- 12. Measure customer retention success.
+WITH RepeatCustomers AS (
+    SELECT 
+        Customer_ID, 
+        COUNT(Order_ID) AS Total_Orders 
+    FROM Orders 
+    GROUP BY Customer_ID 
+    HAVING COUNT(Order_ID) > 1 
+) 
+SELECT 
+    (COUNT(*) * 100.0 / (SELECT COUNT(*) FROM Customers)) AS Repeat_Customer_Percentage 
+FROM RepeatCustomers; 
+
+-- 13. Top Genres by Revenue
+SELECT 
+    b.Genre AS Category, 
+    SUM(o.Total_Amount) AS Total_Spending 
+FROM Books b 
+JOIN Orders o ON b.Book_ID = o.Book_ID 
+GROUP BY b.Genre 
+ORDER BY Total_Spending DESC; 
+
+-- 14. Low-Stock Alerts
+SELECT 
+    Title, 
+    Stock 
+FROM Books 
+WHERE Stock < 10 
+ORDER BY Stock ASC; 
